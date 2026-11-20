@@ -1,0 +1,197 @@
+name: Build and package
+
+# Builds the Windows app and the MSI on a real Windows runner, which is the one
+# thing that cannot be done on the Linux development host (WiX only supports
+# Windows, and there is no Wine there).
+
+on:
+  push:
+    branches: [main, master, test, develop]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows binaries and MSI
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Run the logic and wording tests
+        run: dotnet run -c Release --project tests/DitechsPcCheck.Tests.csproj
+
+      - name: Analyse the PowerShell installer
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          }
+          $issues = Invoke-ScriptAnalyzer -Path ./Installer/Install-DitechsPcCheck.ps1 -Severity Error,Warning
+          if ($issues) { $issues | Format-Table -AutoSize; throw 'PSScriptAnalyzer reported findings.' }
+          'No findings'
+
+      - name: Build small exe (.NET Framework 4.8)
+        run: dotnet build DitechsPcCheck.csproj -c Release -p:Fx=48
+
+      - name: Build standalone exe (.NET 8, self-contained)
+        run: dotnet publish DitechsPcCheck.csproj -c Release
+
+      - name: Stage the client package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp bin/Release/net48/DitechsPcCheck.exe \
+             dist/DitechsPcCheck.exe
+          cp bin/Release/net8.0-windows/win-x64/publish/DitechsPcCheck.exe \
+             dist/DitechsPcCheck-standalone.exe
+          cp Installer/Install-DitechsPcCheck.ps1 dist/
+          cp Installer/Install.cmd               dist/
+          cp Installer/README.txt                dist/
+
+      # The entire promise of this tool is that it never asks for permission.
+      # If a build ever starts requesting administrator rights, fail here rather
+      # than ship it. build.sh makes the same check on the development host.
+      - name: Verify the exe never requests administrator rights
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $text = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes('dist/DitechsPcCheck.exe'))
+          if ($text -notmatch 'level="asInvoker"') {
+            throw 'The exe does not request asInvoker. Refusing to package it.'
+          }
+          if ($text -match 'level="requireAdministrator"') {
+            throw 'The exe requests administrator rights. Refusing to package it.'
+          }
+          'asInvoker confirmed, no administrator request present'
+
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 5.*
+
+      # WiX finally works here, because this runner is Windows.
+      - name: Build the MSI
+        run: wix build Installer/Product.wxs -arch x64 -o dist/DitechsPcCheck.msi
+
+      # CI can only sign with a CLOUD service. Since June 2023 the CA/Browser
+      # Forum requires publicly-trusted code-signing keys to be held in FIPS
+      # 140-2 Level 2 hardware, so a USB token cannot work on a runner (there is
+      # nothing to plug in) and no .pfx is issued for public certificates.
+      # SSL.com eSigner keeps the key in their cloud HSM; jsign talks to it.
+      - name: Set up Java for jsign
+        if: env.ESIGNER_USERNAME != ''
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Sign with SSL.com eSigner (cloud HSM)
+        if: env.ESIGNER_USERNAME != ''
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL -o "$RUNNER_TEMP/jsign.jar" \
+            https://github.com/ebourg/jsign/releases/download/7.6/jsign-7.6.jar
+          shopt -s nullglob
+          files=(dist/*.exe dist/*.msi)
+          if [ ${#files[@]} -eq 0 ]; then echo "nothing to sign"; exit 1; fi
+          for f in "${files[@]}"; do
+            echo "signing $(basename "$f")"
+            java -jar "$RUNNER_TEMP/jsign.jar" \
+              --storetype ESIGNER \
+              --storepass "${ESIGNER_USERNAME}|${ESIGNER_PASSWORD}" \
+              --alias "${ESIGNER_CREDENTIAL_ID}" \
+              --keypass "${ESIGNER_TOTP_SECRET}" \
+              --tsaurl http://timestamp.digicert.com --tsmode RFC3161 \
+              "$f"
+          done
+          echo "all artifacts signed and timestamped"
+
+      # Fallback for an INTERNAL certificate authority or a legacy certificate
+      # where a key file is legitimately available. This does NOT apply to a
+      # publicly-trusted certificate - those cannot be issued as a .pfx.
+      - name: Sign with a certificate file (internal CA only)
+        if: env.SIGN_PFX_BASE64 != ''
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASS: ${{ secrets.SIGN_PFX_PASS }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          try {
+            $targets = Get-ChildItem dist -Recurse -Include *.exe, *.msi, *.ps1
+            if (-not $targets) { throw 'nothing to sign - dist/ is empty' }
+            foreach ($f in $targets) {
+              Write-Host "signing $($f.Name)"
+              signtool sign /f $pfx /p $env:SIGN_PFX_PASS /fd SHA256 `
+                /tr http://timestamp.digicert.com /td SHA256 $f.FullName
+              if ($LASTEXITCODE -ne 0) { throw "signing failed for $($f.Name)" }
+            }
+            Write-Host 'all artifacts signed and timestamped'
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Package the client zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          python - <<'PY'
+          import os, zipfile
+          files = ["DitechsPcCheck.exe", "Install.cmd",
+                   "Install-DitechsPcCheck.ps1", "README.txt"]
+          with zipfile.ZipFile("DitechsPcCheck.zip", "w", zipfile.ZIP_DEFLATED) as z:
+              for f in files:
+                  if os.path.exists(f):
+                      z.write(f, f)
+          print("zip written")
+          PY
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ditechs-pc-check
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Attach to the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download the built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ditechs-pc-check
+          path: dist
+
+      - name: Attach them to the tag
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

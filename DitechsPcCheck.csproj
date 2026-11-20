@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>DitechsPcCheck</AssemblyName>
+    <RootNamespace>DitechsPcCheck</RootNamespace>
+    <AssemblyTitle>Ditechs PC Check</AssemblyTitle>
+    <Product>Ditechs PC Check</Product>
+    <Company>Ditechs</Company>
+    <Description>See how healthy this PC is, in plain English. It only looks - it never changes anything.</Description>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Copyright>Ditechs</Copyright>
+
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!-- Allows cross-compilation for Windows from Linux/macOS -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <!-- The test project lives in a subfolder and compiles PcCheckRules.cs itself.
+       Without this, the default source glob would sweep it up and we would get
+       two Main methods and duplicate attributes. -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+    <Compile Remove="dist/**" />
+    <Compile Remove="Installer/**" />
+  </ItemGroup>
+
+  <!--
+    DEFAULT BUILD: modern .NET 8, self-contained single file.
+    Runs on any 64-bit Windows with nothing installed. About 66 MB, but bullet-proof.
+      dotnet publish -c Release
+  -->
+  <PropertyGroup Condition="'$(Fx)' != '48'">
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <!--
+    SMALL BUILD: .NET Framework 4.8, roughly 60 KB single .exe.
+    4.8 ships with every Windows 10 (1903+) and Windows 11, so this is the
+    one to hand to clients. Build with:
+      dotnet build -c Release -p:Fx=48
+  -->
+  <PropertyGroup Condition="'$(Fx)' == '48'">
+    <TargetFramework>net48</TargetFramework>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(Fx)' == '48'">
+    <!-- Lets net48 be built on Linux/macOS as well as Windows -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <!-- Built into .NET Framework; used read-only to list installed virus protection -->
+    <Reference Include="System.Management" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Fx)' != '48'">
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

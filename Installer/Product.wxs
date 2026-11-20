@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package
+      Name="Ditechs PC Check"
+      Manufacturer="Ditechs"
+      Version="1.0.0"
+      UpgradeCode="E1DC6436-A36C-4EF6-B80F-322DE219794D"
+      Scope="perMachine"
+      Compressed="yes">
+
+    <SummaryInformation
+        Manufacturer="Ditechs"
+        Description="Ditechs PC Check - see how healthy this PC is, in plain English" />
+
+    <!-- Installing a newer version replaces the old one; older cannot downgrade. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Ditechs PC Check is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!--
+      The shipped executable targets .NET Framework 4.8, which is present on
+      every Windows 10 (1903+) and Windows 11. Release 528040 is 4.8.
+    -->
+    <Property Id="NETFRAMEWORK48_RELEASE">
+      <RegistrySearch Id="Net48Release" Root="HKLM"
+                      Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+                      Name="Release" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR NETFRAMEWORK48_RELEASE &gt;= 528040"
+            Message="Ditechs PC Check requires Microsoft .NET Framework 4.8, which is included with Windows 10 and 11. Please install it and run setup again." />
+
+    <!-- Add/Remove Programs presentation -->
+    <Icon Id="AppIcon" SourceFile="./app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPHELPLINK" Value="https://ditechs.co.uk/tools/pc-check/" />
+    <Property Id="ARPCOMMENTS" Value="See how healthy this PC is, in plain English. It only looks - it never changes anything." />
+
+    <!--
+      The MSI itself is perMachine and therefore needs administrator rights,
+      because it writes to Program Files. The APPLICATION never does: its
+      manifest requests asInvoker, and both build.sh and CI refuse to package a
+      build that asks for anything else.
+    -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="DitechsPcCheck" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppProgramMenuDir" Name="Ditechs PC Check" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="MainFeature" Title="Ditechs PC Check" Level="1">
+      <ComponentGroupRef Id="AppComponents" />
+      <ComponentRef Id="Shortcuts" />
+    </Feature>
+
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
+      <Component Id="MainExecutable" Guid="54BC981A-4F3C-402C-8341-3915BE514F9E">
+        <File Id="PcCheckExe" Source="./dist/DitechsPcCheck.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="ReadmeFile" Guid="22CCB518-37A2-417E-BDB1-AEA3501742F6">
+        <File Id="ReadmeTxt" Source="./dist/README.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <!-- Start Menu + Desktop shortcuts. KeyPath is an HKLM marker value. -->
+    <Component Id="Shortcuts" Directory="INSTALLFOLDER" Guid="F095F6BA-1DDB-40C4-9625-13B1A86490CE">
+      <Shortcut Id="StartMenuShortcut"
+                Directory="AppProgramMenuDir"
+                Name="Ditechs PC Check"
+                Description="See how healthy this PC is, in plain English"
+                Target="[INSTALLFOLDER]DitechsPcCheck.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <Shortcut Id="DesktopShortcut"
+                Directory="DesktopFolder"
+                Name="Ditechs PC Check"
+                Description="See how healthy this PC is, in plain English"
+                Target="[INSTALLFOLDER]DitechsPcCheck.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <RemoveFolder Id="RemoveAppProgramMenuDir" Directory="AppProgramMenuDir" On="uninstall" />
+      <RegistryValue Root="HKLM" Key="Software\Ditechs\PcCheck"
+                     Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+</Wix>

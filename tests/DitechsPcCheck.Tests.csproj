@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>DitechsPcCheck</RootNamespace>
+    <AssemblyName>PcCheckTests</AssemblyName>
+    <!-- Runs on any OS: it exercises the wording and threshold half of the app,
+         which is the half that can be wrong in a way that matters. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only the decision-making file, which references no Windows APIs. -->
+    <Compile Include="../PcCheckRules.cs" />
+  </ItemGroup>
+
+</Project>
