@@ -83,6 +83,48 @@ jobs:
       - name: Build the MSI
         run: wix build Installer/Product.wxs -arch x64 -o dist/DitechsPcCheck.msi
 
+      # ---- Free route: SignPath Foundation -----------------------------------
+      # SignPath fetches the build artifact, signs it, and hands it back, so the
+      # files must be uploaded as a GitHub artifact first. Dormant until the
+      # SIGNPATH_API_TOKEN secret and the SIGNPATH_* repository variables exist.
+      - name: Upload the packages for signing
+        id: unsigned-package
+        if: env.SIGNPATH_API_TOKEN != ''
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-pc-check
+          path: dist/*
+          retention-days: 1
+
+      - name: Sign with SignPath (free for open source)
+        if: env.SIGNPATH_API_TOKEN != ''
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-package.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Use the signed files
+        if: env.SIGNPATH_API_TOKEN != ''
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(find signed -type f)
+          [ -n "$files" ] || { echo "SignPath returned no files"; exit 1; }
+          echo "$files"
+          find signed -type f -exec cp -f {} dist/ \;
+
       # CI can only sign with a CLOUD service. Since June 2023 the CA/Browser
       # Forum requires publicly-trusted code-signing keys to be held in FIPS
       # 140-2 Level 2 hardware, so a USB token cannot work on a runner (there is

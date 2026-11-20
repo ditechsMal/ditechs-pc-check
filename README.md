@@ -64,3 +64,15 @@ Source layout:
 - The backup check can only recognise OneDrive folder sync, File History, and a list of
   known backup programs. It says "we couldn't find a backup" rather than asserting there is
   none, precisely because it cannot see everything.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by
+[SignPath Foundation](https://signpath.org).
+
+- Release binaries are built from this repository by GitHub Actions
+  (`.github/workflows/build.yml`) and signed through SignPath before publication.
+- Every signing request is approved manually before it completes, so a compromised
+  build pipeline cannot sign anything on its own.
+- This program will not transfer any information to other networked systems unless
+  specifically requested by the user or the person installing or operating it.
