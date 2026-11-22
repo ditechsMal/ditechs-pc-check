@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace DitechsPcCheck
@@ -52,6 +53,7 @@ namespace DitechsPcCheck
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.White;
             Font = new Font("Segoe UI", 9f);
+            Icon = LoadAppIcon();
 
             // ---- header ----
             var header = new Panel { Location = new Point(0, 0), Size = new Size(780, 88), BackColor = Brand };
@@ -141,6 +143,40 @@ namespace DitechsPcCheck
             Controls.Add(_book);
             Controls.Add(_toast);
             Controls.Add(footer);
+        }
+
+        /// <summary>
+        /// The window icon, loaded from the .ico embedded in this assembly.
+        ///
+        /// A WinForms form does NOT pick up the executable's icon on its own - the Icon
+        /// property defaults to null and Windows then draws the generic application icon
+        /// - so it has to be set explicitly for the title bar and the taskbar to show
+        /// the Ditechs mark.
+        /// </summary>
+        private static Icon? LoadAppIcon()
+        {
+            try
+            {
+                using var stream = typeof(MainForm).GetTypeInfo().Assembly
+                    .GetManifestResourceStream("DitechsPcCheck.app.ico");
+
+                // Ask for the large-icon size: Windows scales it down for the title bar,
+                // and the taskbar and Alt-Tab get the crisp 32px image.
+                if (stream is not null) return new Icon(stream, SystemInformation.IconSize);
+            }
+            catch (Exception)
+            {
+                // Fall through to the executable's own icon.
+            }
+
+            try
+            {
+                return Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         private static void StyleButton(Button b, string text, Point where, int width, bool enabled)

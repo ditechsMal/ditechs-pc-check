@@ -12,8 +12,8 @@
     <Product>Ditechs PC Check</Product>
     <Company>Ditechs</Company>
     <Description>See how healthy this PC is, in plain English. It only looks - it never changes anything.</Description>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.1</Version>
+    <FileVersion>1.0.1.0</FileVersion>
     <Copyright>Ditechs</Copyright>
 
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -33,6 +33,11 @@
     <None Remove="tests/**" />
     <Compile Remove="dist/**" />
     <Compile Remove="Installer/**" />
+
+    <!-- Embedded under an explicit name so the form can find it. A WinForms form does
+         not pick up the executable's icon on its own, so MainForm loads this for the
+         title bar and the taskbar. -->
+    <EmbeddedResource Include="app.ico" LogicalName="DitechsPcCheck.app.ico" />
   </ItemGroup>
 
   <!--

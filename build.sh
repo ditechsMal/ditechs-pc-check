@@ -116,13 +116,22 @@ make_zip() {
   cp "$HERE/Installer/README.txt" "$DIST/README.txt"
   cp "$HERE/Installer/Install.cmd" "$DIST/Install.cmd"
   cp "$HERE/Installer/Install-DitechsPcCheck.ps1" "$DIST/Install-DitechsPcCheck.ps1"
+  # Read the version out of the csproj rather than repeating it here. A hardcoded copy
+  # drifts from the assembly version, and the website's download link is built from
+  # this file name - so a stale one here becomes a broken link there.
+  local version
+  version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$HERE/DitechsPcCheck.csproj" | head -1)
+  if [ -z "$version" ]; then
+    echo "    !! could not read <Version> from DitechsPcCheck.csproj"
+    return 1
+  fi
   # Python rather than `zip`, so the build has no dependency on an external archiver.
-  python3 - "$DIST" "$APP" <<'PY'
+  python3 - "$DIST" "$APP" "$version" <<'PY'
 import os, sys, zipfile
-dist, app = sys.argv[1], sys.argv[2]
+dist, app, version = sys.argv[1], sys.argv[2], sys.argv[3]
 files = [f"{app}.exe", f"{app}-standalone.exe",
          "Install.cmd", "Install-DitechsPcCheck.ps1", "README.txt"]
-out = os.path.join(dist, "DitechsPcCheck-1.0.0.zip")
+out = os.path.join(dist, f"{app}-{version}.zip")
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     for name in files:
         path = os.path.join(dist, name)
